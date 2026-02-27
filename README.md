@@ -71,14 +71,27 @@ go build -ldflags "-s -w" -o slack-mod
 
 ## Desktop launcher patch
 
-Create an OS launcher entry that points to your current `slack-mod` binary:
+Create an OS launcher entry:
 
 ```sh
 ./slack-mod --patch-desktop
 ```
 
+Or use helper scripts (recommended).  
+They copy the binary (and `injection/`) to a stable user location first, then run `--patch-desktop`.
+
+```sh
+./patch-desktop.sh
+```
+
+```bat
+patch-desktop.bat
+```
+
 Platform behavior:
 
+- `patch-desktop.sh`: installs to `${XDG_DATA_HOME:-~/.local/share}/slack-mod/slack-mod`
+- `patch-desktop.bat`: installs to `%LOCALAPPDATA%\slack-mod\slack-mod.exe`
 - Windows: creates `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Slack Mod.lnk`
 - macOS: creates `~/Applications/Slack Mod.app`
 - Linux: writes `~/.local/share/applications/slack.desktop` and rewrites `Exec=`
