@@ -188,6 +188,7 @@
     const SELECT_MODE_CLASS = 'slactac-select-mode';
     const SELECTOR_STYLE_ID = 'slactac-selector-style';
     const TOP_TOOLTIP_ID = 'slactac-top-tooltip';
+    const THEME_PROBE_ID = 'slactac-theme-probe';
 
     const ensureSelectorStyles = () => {
         if (document.getElementById(SELECTOR_STYLE_ID)) return;
@@ -316,29 +317,132 @@
         }
         return '';
     };
+    const getThemeScopeElement = () => {
+        const coachmarkScope = document.querySelector('[id^="c-coachmark-anchor_"] > button > span');
+        if (coachmarkScope) return coachmarkScope;
+
+        const topNavAnchor = document.querySelector('.p-top_nav__ai_apps_button__container');
+        if (topNavAnchor) {
+            const scoped = topNavAnchor.closest('.p-theme_background');
+            if (scoped) return scoped;
+        }
+        return document.querySelector('.p-theme_background') || document.body || document.documentElement;
+    };
+    const getThemeProbe = () => {
+        const scope = getThemeScopeElement();
+        if (!scope) return null;
+        let probe = document.getElementById(THEME_PROBE_ID);
+        if (!probe) {
+            probe = document.createElement('span');
+            probe.id = THEME_PROBE_ID;
+            probe.setAttribute('aria-hidden', 'true');
+            probe.style.cssText = 'position:absolute; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none;';
+            scope.appendChild(probe);
+            return probe;
+        }
+        if (probe.parentElement !== scope) scope.appendChild(probe);
+        return probe;
+    };
+    const resolveScopedComputedStyle = (prop, value, fallback) => {
+        const probe = getThemeProbe();
+        if (!probe) return fallback || '';
+        probe.style[prop] = value;
+        const resolved = getComputedStyle(probe)[prop];
+        if (!resolved || resolved === 'initial' || resolved === 'unset') return fallback || '';
+        return resolved;
+    };
+    const parseVarFunction = (value) => {
+        const trimmed = (value || '').trim();
+        if (!trimmed.startsWith('var(') || !trimmed.endsWith(')')) return null;
+        const inner = trimmed.slice(4, -1).trim();
+        if (!inner) return null;
+
+        let depth = 0;
+        let commaIndex = -1;
+        for (let i = 0; i < inner.length; i += 1) {
+            const ch = inner[i];
+            if (ch === '(') depth += 1;
+            else if (ch === ')' && depth > 0) depth -= 1;
+            else if (ch === ',' && depth === 0) {
+                commaIndex = i;
+                break;
+            }
+        }
+
+        if (commaIndex === -1) {
+            return { name: inner.trim(), fallback: '' };
+        }
+        return {
+            name: inner.slice(0, commaIndex).trim(),
+            fallback: inner.slice(commaIndex + 1).trim()
+        };
+    };
+    const resolveScopedCssValue = (value, scopeStyle, visited) => {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return '';
+
+        const parsed = parseVarFunction(trimmed);
+        if (!parsed) return trimmed;
+        if (!parsed.name || !parsed.name.startsWith('--')) return trimmed;
+
+        if (visited.has(parsed.name)) {
+            return parsed.fallback ? resolveScopedCssValue(parsed.fallback, scopeStyle, visited) : '';
+        }
+
+        visited.add(parsed.name);
+        const raw = (scopeStyle.getPropertyValue(parsed.name) || '').trim();
+        const resolved = raw ? resolveScopedCssValue(raw, scopeStyle, visited) : '';
+        visited.delete(parsed.name);
+
+        if (resolved) return resolved;
+        if (parsed.fallback) return resolveScopedCssValue(parsed.fallback, scopeStyle, visited);
+        return '';
+    };
+    const toColorValue = (value, alpha) => {
+        const trimmed = (value || '').trim();
+        if (!trimmed) return '';
+        const channelTriplet = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/;
+        if (channelTriplet.test(trimmed)) {
+            if (alpha === null || alpha === undefined) return `rgb(${trimmed})`;
+            return `rgba(${trimmed}, ${alpha})`;
+        }
+        if (alpha === null || alpha === undefined) return trimmed;
+        return trimmed;
+    };
+    const resolveThemeColorVar = (varName, alpha, fallback) => {
+        const scope = getThemeScopeElement();
+        if (!scope) return fallback || '';
+        const scopeStyle = getComputedStyle(scope);
+        const resolved = resolveScopedCssValue(`var(${varName})`, scopeStyle, new Set());
+        const color = toColorValue(resolved, alpha);
+        return color || fallback || '';
+    };
     const getManagerTheme = () => {
+        const panelText = resolveThemeColorVar('--dt_color-plt-flamingo-100', 1, 'rgba(255, 255, 255, 1)');
         return {
             panelBg: pickFromElement(['.p-theme_background'], 'background'),
-            panelText: 'rgba(var(--dt_color-plt-flamingo-100), 1)',
-            titleText: 'var(--dt_color-theme-content-inv-pry)',
-            aliasCountText: 'var(--dt_color-theme-content-inv-pry)',
-            subtleText: 'rgba(var(--dt_color-plt-flamingo-100), 0.8)',
+            panelText,
+            titleText: resolveScopedComputedStyle('color', 'var(--dt_color-theme-content-inv-pry)', panelText),
+            aliasCountText: resolveScopedComputedStyle('color', 'var(--dt_color-theme-content-inv-pry)', panelText),
+            subtleText: resolveThemeColorVar('--dt_color-plt-flamingo-100', 0.8, 'rgba(255, 255, 255, 0.8)'),
             cardBg: 'rgba(255,255,255,0.8)',
             scrollTrack: 'rgba(0,0,0,0.14)',
             scrollThumb: 'rgba(255,255,255,0.42)',
             scrollThumbHover: 'rgba(255,255,255,0.58)',
-            closeBg: 'var(--dt_color-theme-surf-inv-pry)',
-            editBtnBg: 'var(--dt_color-theme-base-hgl-1)',
-            editBtnFg: 'var(--dt_color-theme-content-hgl-1)',
-            editBtnBgHover: 'var(--dt_color-theme-base-hgl-1-hover)',
-            delBtnBg: 'var(--dt_color-theme-base-imp)',
-            delBtnBgHover: 'var(--dt_color-theme-base-imp-hover)',
-            delBtnFg: 'var(--dt_color-theme-content-imp)'
+            closeBg: resolveThemeColorVar('--dt_color-theme-surf-inv-pry', null, 'rgba(255, 255, 255, 0.12)'),
+            editBtnBg: resolveThemeColorVar('--dt_color-theme-base-hgl-1', null, 'rgba(18, 100, 163, 1)'),
+            editBtnFg: resolveThemeColorVar('--dt_color-theme-content-hgl-1', 1, 'rgba(255, 255, 255, 1)'),
+            editBtnBgHover: resolveThemeColorVar('--dt_color-theme-base-hgl-1-hover', null, 'rgba(16, 84, 138, 1)'),
+            delBtnBg: resolveThemeColorVar('--dt_color-theme-base-imp', null, 'rgba(224, 30, 90, 1)'),
+            delBtnBgHover: resolveThemeColorVar('--dt_color-theme-base-imp-hover', null, 'rgba(197, 18, 74, 1)'),
+            delBtnFg: resolveThemeColorVar('--dt_color-theme-content-imp', 1, 'rgba(255, 255, 255, 1)')
         };
     };
     const themeSignature = (theme) => [
         theme.panelBg,
         theme.panelText,
+        theme.titleText,
+        theme.aliasCountText,
         theme.subtleText,
         theme.cardBg,
         theme.scrollTrack,
