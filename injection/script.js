@@ -20,9 +20,13 @@
     };
     let isSelecting = false;
     let transformQueued = false;
+    let themeCheckQueued = false;
     let storageReady = false;
     let storedNamesCache = {};
     let lastThemeSignature = '';
+    const SIDEBAR_NAME_SELECTOR = '.p-channel_sidebar__name, [data-qa^="channel_sidebar_name_"], [data-qa="channel_sidebar_name"]';
+    const TRANSFORM_TARGET_SELECTOR = '.p-channel_sidebar__name, .c-sidebar_menu_item__label, .p-view_header__channel_title, .c-message__sender_link';
+    const RGB_CHANNEL_TRIPLET_RE = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/;
 
     const normalizeLocale = (value) => (value || '').toString().trim().replace('_', '-').toLowerCase();
     const resolveLocale = (value) => {
@@ -328,8 +332,7 @@
         }
         return document.querySelector('.p-theme_background') || document.body || document.documentElement;
     };
-    const getThemeProbe = () => {
-        const scope = getThemeScopeElement();
+    const getThemeProbe = (scope) => {
         if (!scope) return null;
         let probe = document.getElementById(THEME_PROBE_ID);
         if (!probe) {
@@ -342,14 +345,6 @@
         }
         if (probe.parentElement !== scope) scope.appendChild(probe);
         return probe;
-    };
-    const resolveScopedComputedStyle = (prop, value, fallback) => {
-        const probe = getThemeProbe();
-        if (!probe) return fallback || '';
-        probe.style[prop] = value;
-        const resolved = getComputedStyle(probe)[prop];
-        if (!resolved || resolved === 'initial' || resolved === 'unset') return fallback || '';
-        return resolved;
     };
     const parseVarFunction = (value) => {
         const trimmed = (value || '').trim();
@@ -377,65 +372,82 @@
             fallback: inner.slice(commaIndex + 1).trim()
         };
     };
-    const resolveScopedCssValue = (value, scopeStyle, visited) => {
+    const resolveScopedCssValue = (value, scopeStyle, visited, varCache) => {
         const trimmed = (value || '').trim();
         if (!trimmed) return '';
 
         const parsed = parseVarFunction(trimmed);
         if (!parsed) return trimmed;
         if (!parsed.name || !parsed.name.startsWith('--')) return trimmed;
+        if (varCache.has(parsed.name)) return varCache.get(parsed.name);
 
         if (visited.has(parsed.name)) {
-            return parsed.fallback ? resolveScopedCssValue(parsed.fallback, scopeStyle, visited) : '';
+            return parsed.fallback ? resolveScopedCssValue(parsed.fallback, scopeStyle, visited, varCache) : '';
         }
 
         visited.add(parsed.name);
         const raw = (scopeStyle.getPropertyValue(parsed.name) || '').trim();
-        const resolved = raw ? resolveScopedCssValue(raw, scopeStyle, visited) : '';
+        const resolved = raw ? resolveScopedCssValue(raw, scopeStyle, visited, varCache) : '';
         visited.delete(parsed.name);
 
-        if (resolved) return resolved;
-        if (parsed.fallback) return resolveScopedCssValue(parsed.fallback, scopeStyle, visited);
+        if (resolved) {
+            varCache.set(parsed.name, resolved);
+            return resolved;
+        }
+        if (parsed.fallback) return resolveScopedCssValue(parsed.fallback, scopeStyle, visited, varCache);
         return '';
     };
     const toColorValue = (value, alpha) => {
         const trimmed = (value || '').trim();
         if (!trimmed) return '';
-        const channelTriplet = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/;
-        if (channelTriplet.test(trimmed)) {
+        if (RGB_CHANNEL_TRIPLET_RE.test(trimmed)) {
             if (alpha === null || alpha === undefined) return `rgb(${trimmed})`;
             return `rgba(${trimmed}, ${alpha})`;
         }
         if (alpha === null || alpha === undefined) return trimmed;
         return trimmed;
     };
-    const resolveThemeColorVar = (varName, alpha, fallback) => {
+    const createThemeResolver = () => {
         const scope = getThemeScopeElement();
-        if (!scope) return fallback || '';
-        const scopeStyle = getComputedStyle(scope);
-        const resolved = resolveScopedCssValue(`var(${varName})`, scopeStyle, new Set());
-        const color = toColorValue(resolved, alpha);
-        return color || fallback || '';
+        const scopeStyle = scope ? getComputedStyle(scope) : null;
+        const varCache = new Map();
+        const resolveColorVar = (varName, alpha, fallback) => {
+            if (!scopeStyle) return fallback || '';
+            const resolved = resolveScopedCssValue(`var(${varName})`, scopeStyle, new Set(), varCache);
+            const color = toColorValue(resolved, alpha);
+            return color || fallback || '';
+        };
+        const resolveComputedStyle = (prop, value, fallback) => {
+            const probe = getThemeProbe(scope);
+            if (!probe) return fallback || '';
+            probe.style[prop] = value;
+            const resolved = getComputedStyle(probe)[prop];
+            if (!resolved || resolved === 'initial' || resolved === 'unset') return fallback || '';
+            return resolved;
+        };
+        return { resolveColorVar, resolveComputedStyle };
     };
     const getManagerTheme = () => {
-        const panelText = resolveThemeColorVar('--dt_color-plt-flamingo-100', 1, 'rgba(255, 255, 255, 1)');
+        const themeResolver = createThemeResolver();
+        const panelText = themeResolver.resolveColorVar('--dt_color-plt-flamingo-100', 1, 'rgba(255, 255, 255, 1)');
+        const inversePrimary = themeResolver.resolveComputedStyle('color', 'var(--dt_color-theme-content-inv-pry)', panelText);
         return {
             panelBg: pickFromElement(['.p-theme_background'], 'background'),
             panelText,
-            titleText: resolveScopedComputedStyle('color', 'var(--dt_color-theme-content-inv-pry)', panelText),
-            aliasCountText: resolveScopedComputedStyle('color', 'var(--dt_color-theme-content-inv-pry)', panelText),
-            subtleText: resolveThemeColorVar('--dt_color-plt-flamingo-100', 0.8, 'rgba(255, 255, 255, 0.8)'),
+            titleText: inversePrimary,
+            aliasCountText: inversePrimary,
+            subtleText: themeResolver.resolveColorVar('--dt_color-plt-flamingo-100', 0.8, 'rgba(255, 255, 255, 0.8)'),
             cardBg: 'rgba(255,255,255,0.8)',
             scrollTrack: 'rgba(0,0,0,0.14)',
             scrollThumb: 'rgba(255,255,255,0.42)',
             scrollThumbHover: 'rgba(255,255,255,0.58)',
-            closeBg: resolveThemeColorVar('--dt_color-theme-surf-inv-pry', null, 'rgba(255, 255, 255, 0.12)'),
-            editBtnBg: resolveThemeColorVar('--dt_color-theme-base-hgl-1', null, 'rgba(18, 100, 163, 1)'),
-            editBtnFg: resolveThemeColorVar('--dt_color-theme-content-hgl-1', 1, 'rgba(255, 255, 255, 1)'),
-            editBtnBgHover: resolveThemeColorVar('--dt_color-theme-base-hgl-1-hover', null, 'rgba(16, 84, 138, 1)'),
-            delBtnBg: resolveThemeColorVar('--dt_color-theme-base-imp', null, 'rgba(224, 30, 90, 1)'),
-            delBtnBgHover: resolveThemeColorVar('--dt_color-theme-base-imp-hover', null, 'rgba(197, 18, 74, 1)'),
-            delBtnFg: resolveThemeColorVar('--dt_color-theme-content-imp', 1, 'rgba(255, 255, 255, 1)')
+            closeBg: themeResolver.resolveColorVar('--dt_color-theme-surf-inv-pry', null, 'rgba(255, 255, 255, 0.12)'),
+            editBtnBg: themeResolver.resolveColorVar('--dt_color-theme-base-hgl-1', null, 'rgba(18, 100, 163, 1)'),
+            editBtnFg: themeResolver.resolveColorVar('--dt_color-theme-content-hgl-1', 1, 'rgba(255, 255, 255, 1)'),
+            editBtnBgHover: themeResolver.resolveColorVar('--dt_color-theme-base-hgl-1-hover', null, 'rgba(16, 84, 138, 1)'),
+            delBtnBg: themeResolver.resolveColorVar('--dt_color-theme-base-imp', null, 'rgba(224, 30, 90, 1)'),
+            delBtnBgHover: themeResolver.resolveColorVar('--dt_color-theme-base-imp-hover', null, 'rgba(197, 18, 74, 1)'),
+            delBtnFg: themeResolver.resolveColorVar('--dt_color-theme-content-imp', 1, 'rgba(255, 255, 255, 1)')
         };
     };
     const themeSignature = (theme) => [
@@ -465,7 +477,7 @@
         // Allow only real channel/DM conversation rows.
         if (!['channel', 'public', 'private', 'private_channel', 'im', 'mpim'].includes(type)) return false;
 
-        const hasName = !!channelNode.querySelector('.p-channel_sidebar__name, [data-qa^="channel_sidebar_name_"], [data-qa="channel_sidebar_name"]');
+        const hasName = !!channelNode.querySelector(SIDEBAR_NAME_SELECTOR);
         return hasName;
     };
     const resolveSelectionTarget = (targetNode) => {
@@ -473,7 +485,7 @@
         if (!isEditableSidebarRow(channelNode)) return null;
 
         const rowCandidate = channelNode.closest('[data-qa="virtual-list-item"], [data-testid="sidebar-item"], .p-channel_sidebar__static_list__item') || channelNode;
-        const textElement = channelNode.querySelector('.p-channel_sidebar__name, [data-qa^="channel_sidebar_name_"], [data-qa="channel_sidebar_name"]');
+        const textElement = channelNode.querySelector(SIDEBAR_NAME_SELECTOR);
         if (!textElement) return null;
 
         const oldName = textElement.getAttribute('data-original-name') || textElement.textContent.replace('#', '').trim();
@@ -489,10 +501,7 @@
     const applyTransformations = () => {
         if (!storageReady) return;
         const names = getStoredNames();
-        // Target leaf elements that actually contain visible names.
-        const selectors = '.p-channel_sidebar__name, .c-sidebar_menu_item__label, .p-view_header__channel_title, .c-message__sender_link';
-        
-        document.querySelectorAll(selectors).forEach(el => {
+        document.querySelectorAll(TRANSFORM_TARGET_SELECTOR).forEach(el => {
             let original = el.getAttribute('data-original-name');
             if (!original) {
                 original = el.textContent.replace('#', '').trim();
@@ -509,6 +518,13 @@
                 if (el.textContent !== prefix + original) el.textContent = prefix + original;
             }
         });
+    };
+    const saveAliasValue = async (data, oldName, rawValue) => {
+        const nextName = (rawValue || '').trim();
+        if (!nextName) delete data[oldName];
+        else data[oldName] = nextName;
+        await saveNames(data);
+        queueTransformations();
     };
 
     const queueTransformations = () => {
@@ -743,10 +759,7 @@
                 editBtn.onclick = async () => {
                     const nextName = await showAliasModal(old, curr);
                     if (nextName === null) return;
-                    if (nextName.trim() === '') delete data[old];
-                    else data[old] = nextName.trim();
-                    await saveNames(data);
-                    queueTransformations();
+                    await saveAliasValue(data, old, nextName);
                     showManager();
                 };
 
@@ -756,9 +769,7 @@
                 delBtn.innerText = t('del');
                 delBtn.style.cssText = 'border-radius:8px; padding:6px 9px; cursor:pointer; font-size:11px; font-weight:700;';
                 delBtn.onclick = async () => {
-                    delete data[old];
-                    await saveNames(data);
-                    queueTransformations();
+                    await saveAliasValue(data, old, '');
                     showManager();
                 };
 
@@ -781,6 +792,14 @@
         const nextSignature = themeSignature(getManagerTheme());
         if (!nextSignature || nextSignature === lastThemeSignature) return;
         rerenderManagerWithTheme();
+    };
+    const queueThemeUpdateCheck = () => {
+        if (themeCheckQueued) return;
+        themeCheckQueued = true;
+        requestAnimationFrame(() => {
+            themeCheckQueued = false;
+            checkThemeUpdate();
+        });
     };
 
     // 3. Full row selection mode (expanded selectors)
@@ -833,10 +852,7 @@
                 const newName = await showAliasModal(oldName, getStoredNames()[oldName] || '');
                 if (newName === null) return;
                 const data = getStoredNames();
-                if (newName.trim() === '') delete data[oldName];
-                else data[oldName] = newName.trim();
-                await saveNames(data);
-                queueTransformations();
+                await saveAliasValue(data, oldName, newName);
             }, 0);
         };
 
@@ -900,7 +916,7 @@
         injectBtn();
         queueTransformations();
         checkLocaleUpdate();
-        checkThemeUpdate();
+        queueThemeUpdateCheck();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
@@ -912,12 +928,12 @@
     }
     window.addEventListener('focus', () => {
         checkLocaleUpdate();
-        checkThemeUpdate();
+        queueThemeUpdateCheck();
     });
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden) {
             checkLocaleUpdate();
-            checkThemeUpdate();
+            queueThemeUpdateCheck();
         }
     });
 
