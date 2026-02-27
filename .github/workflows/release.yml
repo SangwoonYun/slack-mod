@@ -99,8 +99,24 @@ jobs:
           if [ -n "$GOARM" ]; then
             ARCH_TAG="${ARCH_TAG}v${GOARM}"
           fi
+
+          rm -rf package
+          mkdir -p package/injection
+          cp "slack-mod$EXT" package/
+          cp -R injection/. package/injection/
+
+          if [ "$GOOS" = "windows" ]; then
+            cp patch-desktop.bat package/
+          else
+            cp patch-desktop.sh package/
+            chmod +x package/patch-desktop.sh
+          fi
+
           ARCHIVE="slack-mod_${GOOS}_${ARCH_TAG}_v${VERSION}.zip"
-          zip -r "$ARCHIVE" "slack-mod$EXT" injection
+          (
+            cd package
+            zip -r "../$ARCHIVE" .
+          )
           echo "ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
 
       - name: Upload artifact
