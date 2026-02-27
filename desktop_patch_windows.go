@@ -33,11 +33,15 @@ func patchDesktopLauncher() (string, error) {
 		iconPath = slackPath
 	}
 
-	if err := createWindowsShortcut(targetPath, exePath, filepath.Dir(exePath), iconPath); err != nil {
-		return "", err
+	if err := createWindowsShortcut(targetPath, exePath, filepath.Dir(exePath), iconPath); err == nil {
+		return targetPath, nil
+	} else {
+		launcherPath := filepath.Join(startMenuPrograms, "Slack Mod.cmd")
+		if fallbackErr := createWindowsCmdLauncher(launcherPath, exePath); fallbackErr != nil {
+			return "", fmt.Errorf("failed to create Windows launcher (.lnk and .cmd fallback): %w (fallback: %v)", err, fallbackErr)
+		}
+		return launcherPath, nil
 	}
-
-	return targetPath, nil
 }
 
 func windowsRoamingAppData() (string, error) {
@@ -104,4 +108,10 @@ func runPowerShell(script string) ([]byte, error) {
 	}
 
 	return nil, lastErr
+}
+
+func createWindowsCmdLauncher(path, targetPath string) error {
+	escapedPath := strings.ReplaceAll(targetPath, "%", "%%")
+	content := fmt.Sprintf("@echo off\r\nsetlocal\r\nset \"BIN=%s\"\r\n\"%%BIN%%\" %%*\r\n", escapedPath)
+	return os.WriteFile(path, []byte(content), 0o644)
 }

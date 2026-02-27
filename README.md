@@ -56,6 +56,12 @@ go build -ldflags "-s -w" -o slack-mod
 ./slack-mod
 ```
 
+If macOS terminates the binary with `killed`, remove quarantine once and run again:
+
+```sh
+xattr -dr com.apple.quarantine ./slack-mod
+```
+
 ### Linux
 
 ```sh
@@ -92,7 +98,7 @@ Platform behavior:
 
 - `patch-desktop.sh`: installs to `${XDG_DATA_HOME:-~/.local/share}/slack-mod/slack-mod`
 - `patch-desktop.bat`: installs to `%LOCALAPPDATA%\slack-mod\slack-mod.exe`
-- Windows: creates `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Slack Mod.lnk`
+- Windows: creates `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Slack Mod.lnk` (or `Slack Mod.cmd` fallback)
 - macOS: creates `~/Applications/Slack Mod.app`
 - Linux: writes `~/.local/share/applications/slack.desktop` and rewrites `Exec=`
 

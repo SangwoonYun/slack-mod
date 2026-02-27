@@ -34,4 +34,18 @@ if exist "%SCRIPT_DIR%injection\" (
 )
 
 "%BIN%" --patch-desktop %*
-exit /b %ERRORLEVEL%
+if errorlevel 1 (
+  echo Failed to patch launcher with --patch-desktop
+  exit /b %ERRORLEVEL%
+)
+
+set "ROAMING_APPDATA=%APPDATA%"
+if "%ROAMING_APPDATA%"=="" set "ROAMING_APPDATA=%USERPROFILE%\AppData\Roaming"
+set "START_MENU=%ROAMING_APPDATA%\Microsoft\Windows\Start Menu\Programs"
+if exist "%START_MENU%\Slack Mod.lnk" goto ok
+if exist "%START_MENU%\Slack Mod.cmd" goto ok
+
+echo Warning: launcher file was not found in "%START_MENU%"
+
+:ok
+exit /b 0
