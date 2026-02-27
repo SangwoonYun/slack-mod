@@ -1,3 +1,11 @@
-.idea
+.idea/
 *.log
+
+# Local build artifacts
+/slack-mod
+/slack-mod.exe
 *.exe
+*.dll
+*.so
+*.dylib
+*.test

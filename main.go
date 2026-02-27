@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 )
 
 const (
-	retryInterval = 1 * time.Second // Интервал между повторными попытками
-	maxRetries    = 30              // Максимальное количество повторных попыток
+	retryInterval = 1 * time.Second // Interval between retry attempts
+	maxRetries    = 30              // Maximum number of retry attempts
 )
 
 func allocateDebuggingPort() (int, error) {
@@ -61,14 +62,17 @@ func (i *Injector) Inject(ws *websocket.Conn) error {
 	}
 
 	encodedStyle := base64.StdEncoding.EncodeToString([]byte(i.style))
-
 	styleInjection := fmt.Sprintf(`document.body.appendChild(document.createElement('style')).textContent = atob('%s')`, encodedStyle)
 
-	return ws.WriteJSON(map[string]interface{}{
+	if err := ws.WriteJSON(map[string]interface{}{
 		"id":     2,
 		"method": "Runtime.evaluate",
 		"params": map[string]interface{}{"expression": styleInjection},
-	})
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func getWebSocketUrl(port int) (string, error) {
@@ -130,16 +134,29 @@ func waitForWebSocketUrl(port int) (string, error) {
 	for retries := 0; retries < maxRetries; retries++ {
 		wsUrl, err := getWebSocketUrl(port)
 		if err == nil && wsUrl != "" {
-			return wsUrl, nil // URL найден, возвращаем его
+			return wsUrl, nil // URL found, return immediately
 		}
 
-		// Если URL не найден или произошла ошибка, ждем и повторяем попытку
+		// If URL is not found or an error occurs, wait and retry.
 		time.Sleep(retryInterval)
 	}
 	return "", errors.New("failed to get WebSocket URL after retrying")
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--patch-desktop":
+			path, err := patchDesktopLauncher()
+			if err != nil {
+				fmt.Println("Error patching desktop launcher:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Desktop launcher patched:", path)
+			return
+		}
+	}
+
 	injector, err := NewInjector()
 	if err != nil {
 		fmt.Println("Error initializing injector:", err)

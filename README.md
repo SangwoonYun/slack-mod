@@ -1,6 +1,26 @@
-# Slack-Mod
+# Slack Mod
 
-Inject __JS__ and __CSS__ into the Official Slack Desktop Client. Works as a loader over the standard client.
+`slack-mod` launches the official Slack desktop app and injects custom JS/CSS at runtime.
+It does not modify Slack installation files.
+
+## What is included
+
+- Runtime injector written in Go
+- Injection assets in `injection/script.js` and `injection/style.css`
+- Desktop launcher patch command (`--patch-desktop`) for Windows/macOS/Linux
+
+Default injected script features:
+
+- Channel/DM alias rename UI (click-to-select)
+- Alias manager (right-click from the top button)
+- Localized UI (en/de/es/fr/it/pt/ja/zh/ko)
+- Alias persistence via IndexedDB + localStorage sync fallback
+
+## Requirements
+
+- Go 1.20+
+- Installed Slack desktop client
+- `injection/` folder present next to the binary (or run from a working directory that contains `injection/`)
 
 ## Build
 
@@ -22,4 +42,50 @@ go build -ldflags "-s -w" -o slack-mod
 go build -ldflags "-s -w" -o slack-mod
 ```
 
-The macOS and Linux binaries run cleanly in the background when launched from the terminal, so no extra console window is created. If you prefer to start them detached from the shell session, use `nohup` or append `&` when launching.
+## Run
+
+### Windows
+
+```powershell
+.\slack-mod.exe
+```
+
+### macOS
+
+```sh
+./slack-mod
+```
+
+### Linux
+
+```sh
+./slack-mod
+```
+
+`slack-mod` automatically:
+
+1. Finds a free localhost debugging port
+2. Launches Slack with remote debugging enabled
+3. Connects to Slack DevTools WebSocket
+4. Injects `injection/script.js` and `injection/style.css`
+
+## Desktop launcher patch
+
+Create an OS launcher entry that points to your current `slack-mod` binary:
+
+```sh
+./slack-mod --patch-desktop
+```
+
+Platform behavior:
+
+- Windows: creates `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Slack Mod.lnk`
+- macOS: creates `~/Applications/Slack Mod.app`
+- Linux: writes `~/.local/share/applications/slack.desktop` and rewrites `Exec=`
+
+## Customize
+
+- Edit logic/UI: `injection/script.js`
+- Edit styles: `injection/style.css`
+
+Re-run `slack-mod` after changes.
